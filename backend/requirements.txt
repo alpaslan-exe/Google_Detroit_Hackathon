@@ -1,0 +1,6 @@
+anthropic
+pandas
+requests
+flask
+flask-cors
+python-dotenv

@@ -1,0 +1,7 @@
+venv/
+.env
+__pycache__/
+*.pyc
+data/blight_violations.csv
+data/blight_violations.zip
+data/crime_cache.json

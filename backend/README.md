@@ -1,0 +1,150 @@
+# SafeLease Backend — Scoring Engine (P1)
+
+Flask service that turns a Detroit coordinate into a 0–100 safety score,
+combining live crime data, locally-cached blight violations, and live rental
+registration lookups.
+
+## Quick start
+
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# One-time: download blight CSV (~128 MB) + cache crime data for 3 demo points.
+# Must run before starting the server, or app.py will fail to load blight data.
+python pre_cache.py
+
+# Start the server on :8000  (macOS 5000/5001 are taken by AirPlay/other)
+python app.py
+```
+
+## API
+
+### `GET /api/score?lat=<float>&lng=<float>`
+
+```bash
+curl 'http://localhost:8000/api/score?lat=42.437448&lng=-83.245584'
+```
+
+Response:
+```json
+{
+  "score": 87.8,
+  "label": "LOW RISK",
+  "crime_count": 41,
+  "crime_score": 33.9,
+  "blight_count": 6,
+  "blight_score": 24.0,
+  "is_compliant": true,
+  "compliance_score": 30
+}
+```
+
+| field              | type   | meaning                                                                 |
+|--------------------|--------|-------------------------------------------------------------------------|
+| `score`            | float  | total 0–100                                                             |
+| `label`            | string | `"LOW RISK"` ≥70 · `"MODERATE RISK"` ≥45 · `"HIGH RISK"` otherwise      |
+| `crime_count`      | int    | incidents within **500m** in the **last 90 days** (live ArcGIS)         |
+| `crime_score`      | float  | 0–40                                                                    |
+| `blight_count`     | int    | active unpaid "Responsible" blight tickets within **300m** (local CSV)  |
+| `blight_score`     | float  | 0–30                                                                    |
+| `is_compliant`     | bool   | any BSEED rental registration found within **100m** (live ArcGIS)       |
+| `compliance_score` | int    | `30` if compliant, `0` otherwise                                        |
+
+**400** — `{"error": "lat and lng query params required (floats)"}`
+
+CORS is enabled for all origins.
+
+## Scoring formula (and why it differs from the Build Guide)
+
+```python
+crime_score      = max(0, 40 - crime_count  * 0.15)
+blight_score     = max(0, 30 - blight_count * 1.00)
+compliance_score = 30 if is_compliant else 0
+total            = crime_score + blight_score + compliance_score
+```
+
+The Build Guide §3 specified steeper slopes (`40 - count*2`, `30 - count*5`),
+but testing against 8 real Detroit coordinates showed **every** address in the
+city would land in HIGH RISK — Detroit residential neighborhoods routinely have
+30–60 crimes in 500m over 90 days, and a handful of historical blight tickets
+within 300m. The curves were recalibrated so the three risk tiers actually
+separate meaningful categories:
+
+| sample                | crime | blight | compliant | score | label          |
+|-----------------------|-------|--------|-----------|-------|----------------|
+| 19935 PATTON (residential, registered) | 41  | 6   | ✓ | 87.8 | LOW RISK       |
+| 3009 NEWPORT                           | 12  | 22  | ✓ | 76.2 | LOW RISK       |
+| 14400 PATTON (registered, blighted area) | 51 | 70 | ✓ | 62.4 | MODERATE RISK |
+| eastside (42.3682,-82.9929, no rental reg) | 14 | 5 | ✗ | 62.9 | MODERATE RISK |
+| midtown (42.3519,-83.0664)             | 171 | 6  | ✗ | 38.4 | HIGH RISK     |
+| downtown (42.3314,-83.0458)            | 315 | 3  | ✗ | 27.0 | HIGH RISK     |
+
+## Blight CSV pre-filter
+
+`load_blight()` drops ~97% of the 816 k rows on startup, keeping only:
+
+- `DISPOSITION` starts with `"Responsible"` (actually found guilty)
+- `TICKET_ISSUED_DATE` within the last 2 years
+- `AMT_BALANCE_DUE > 0` (still owing — the ticket is unresolved)
+- non-null `LATITUDE` / `LONGITUDE`
+
+~27 k "active problems" remain. This is what makes blight counts meaningful
+instead of "every Detroit address has 500+ historical tickets within 300m".
+
+## Data sources
+
+| dataset             | host                               | method                                              |
+|---------------------|------------------------------------|-----------------------------------------------------|
+| RMS Crime Incidents | `services2.arcgis.com/qvkbeam7Wirps6zC/.../RMS_Crime_Incidents/FeatureServer/0` | live GET, `returnCountOnly=true` |
+| Rental Registrations (Combined) | `services2.arcgis.com/.../Rental_Registrations_(Combined)/FeatureServer/0` | live GET, `returnCountOnly=true` |
+| Blight Violations   | `apis.detroitmi.gov/data/blight_violations.zip` | one-time download, pandas in-memory |
+
+All three are public City of Detroit data, no API key required.
+
+The ArcGIS org ID in the Build Guide (`qvkbeam8BMY3o7yh`) does **not exist**.
+The real org is `qvkbeam7Wirps6zC`, and the crime dataset is
+`RMS_Crime_Incidents` (rolling, not per-year). The field name is
+`incident_occurred_at`, not `incident_timestamp`.
+
+## Known caveats (please read before writing pitch copy)
+
+1. **`is_compliant` is a relative signal, not a legal verdict.**
+   - `true` = "at least registered with BSEED" (stronger than nothing)
+   - `false` = "no registration found nearby" (could be unregistered
+     rental, OR could be a non-rental property like a business or vacant lot)
+   Do **not** label a `false` result as "landlord is operating illegally" in
+   the UI or Claude prompt — the user still has to verify Certificate of
+   Compliance status themselves.
+
+2. **The "8% compliant" statistic should cite the fully-compliant figure**,
+   not this dataset's record count. Detroit has ~124 k rental properties;
+   only ~8% are fully compliant with the rental ordinance (have a
+   Certificate of Compliance). Our dataset's 4,573 rows reflect
+   BSEED-registered rentals, which is a broader bucket than "fully compliant."
+
+3. **Crime query falls back to a cached demo point** if the ArcGIS live
+   query fails. This keeps the demo working if the network drops mid-pitch,
+   but means a failed query returns "nearest demo point's count", not zero.
+   See `crime_cache.json` (pre-generated by `pre_cache.py`).
+
+4. **Nominatim geocoding is Person 2's territory.** This module does not
+   geocode — callers must pass `lat`/`lng`. Person 2's `/api/score_by_address`
+   wraps this.
+
+## Files
+
+```
+backend/
+├── app.py              # Flask entry point, /api/score route
+├── scoring.py          # all business logic
+├── pre_cache.py        # one-time data download + demo point caching
+├── requirements.txt
+├── .env                # ANTHROPIC_API_KEY (used by P2, not by P1)
+├── .gitignore
+└── data/               # gitignored
+    ├── blight_violations.csv   (128 MB, downloaded by pre_cache.py)
+    └── crime_cache.json        (demo-point fallback for when ArcGIS is down)
+```
