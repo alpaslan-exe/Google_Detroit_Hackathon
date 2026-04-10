@@ -25,7 +25,7 @@ print(f"[startup] loaded {len(blight_df):,} blight records")
 
 @app.route("/")
 def index():
-    return jsonify({"status": "ok", "service": "detroit-safelease-backend"})
+    return jsonify({"status": "ok", "service": "staysignal-backend"})
 
 
 @app.route("/api/score")

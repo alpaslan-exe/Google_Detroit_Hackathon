@@ -1,59 +1,90 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from 'react'
+
+const DARK_TILES = 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
+const DARK_LABELS = 'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png'
 
 export default function LeafletMap({ result }) {
-  const mapRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const markerRef = useRef(null);
+  const mapRef = useRef(null)
+  const mapInstanceRef = useRef(null)
+  const markerRef = useRef(null)
+  const radiusRef = useRef(null)
 
-  // Create the map ONCE
   useEffect(() => {
-    const L = window.L;
-    if (!L || !mapRef.current) return;
+    const L = window.L
+    if (!L || !mapRef.current || mapInstanceRef.current) return
 
-    if (!mapInstanceRef.current) {
-      const map = L.map(mapRef.current, {
-        zoomControl: true,
-      }).setView([42.3314, -83.0458], 11);
+    const map = L.map(mapRef.current, {
+      zoomControl: true,
+      attributionControl: true,
+    }).setView([42.3314, -83.0458], 12)
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "&copy; OpenStreetMap contributors",
-      }).addTo(map);
+    L.tileLayer(DARK_TILES, {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+    }).addTo(map)
 
-      mapInstanceRef.current = map;
+    L.tileLayer(DARK_LABELS, {
+      maxZoom: 19,
+      pane: 'shadowPane',
+    }).addTo(map)
 
-      // If the map is rendered inside a card that may animate/resize, this helps
-      setTimeout(() => map.invalidateSize(), 0);
-    }
+    mapInstanceRef.current = map
+    setTimeout(() => map.invalidateSize(), 0)
 
-    // Cleanup on unmount (prevents “Map container is already initialized” in dev)
+    const ro = new ResizeObserver(() => {
+      if (mapInstanceRef.current) mapInstanceRef.current.invalidateSize()
+    })
+    ro.observe(mapRef.current)
+
     return () => {
+      ro.disconnect()
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
+        mapInstanceRef.current.remove()
+        mapInstanceRef.current = null
       }
-    };
-  }, []);
+    }
+  }, [])
 
-  // Update marker when result changes
   useEffect(() => {
-    const L = window.L;
-    const map = mapInstanceRef.current;
-    if (!L || !map) return;
-    if (!result?.lat || !result?.lng) return;
+    const L = window.L
+    const map = mapInstanceRef.current
+    if (!L || !map) return
+    if (!result?.lat || !result?.lng) return
 
-    if (markerRef.current) markerRef.current.remove();
+    if (markerRef.current) markerRef.current.remove()
+    if (radiusRef.current) radiusRef.current.remove()
 
-    markerRef.current = L.marker([result.lat, result.lng])
+    const crosshairIcon = L.divIcon({
+      className: '',
+      html: '<div class="crosshair-marker"><div class="crosshair-dot"></div></div>',
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+    })
+
+    markerRef.current = L.marker([result.lat, result.lng], { icon: crosshairIcon })
       .addTo(map)
-      .bindPopup(`<b>${result.address}</b><br/>Score: ${result.score}`)
-      .openPopup();
+      .bindPopup(
+        `<div style="font-family:'JetBrains Mono',monospace;">
+          <div style="color:#F59E0B;font-size:9px;letter-spacing:0.12em;margin-bottom:4px;">TARGET // LOCKED</div>
+          <div style="color:#E2E8F0;font-size:11px;margin-bottom:6px;">${result.address}</div>
+          <div style="color:#94a3b8;font-size:10px;">SCORE // ${result.score} // ${result.label}</div>
+        </div>`
+      )
+      .openPopup()
 
-    map.flyTo([result.lat, result.lng], 14);
+    radiusRef.current = L.circle([result.lat, result.lng], {
+      radius: 500,
+      color: '#F59E0B',
+      weight: 1,
+      opacity: 0.6,
+      fillColor: '#F59E0B',
+      fillOpacity: 0.05,
+      className: 'pulse-radius',
+    }).addTo(map)
 
-    // Ensure tiles render correctly after flyTo / conditional render
-    setTimeout(() => map.invalidateSize(), 0);
-  }, [result]);
+    map.flyTo([result.lat, result.lng], 15, { duration: 1.2 })
+    setTimeout(() => map.invalidateSize(), 0)
+  }, [result])
 
-  return <div ref={mapRef} style={{ height: "100%", width: "100%" }} />;
+  return <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
 }

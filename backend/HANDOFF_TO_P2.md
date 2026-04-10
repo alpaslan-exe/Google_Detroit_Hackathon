@@ -58,7 +58,7 @@ Two new routes on top of the one above:
 
 ### `GET /api/geocode?address=<string>`
 - Calls Nominatim (OpenStreetMap): `https://nominatim.openstreetmap.org/search`
-- **Must send `User-Agent: safelease-hackathon-2026` header** or Nominatim blocks you
+- **Must send `User-Agent: staysignal-hackathon-2026` header** or Nominatim blocks you
 - Must append `, Detroit, MI` to queries that don't already contain it
 - Returns `{address, lat, lng}` or `404 {error}`
 - 1 req/sec rate limit — don't loop it
@@ -86,7 +86,7 @@ from openai import OpenAI
 from scoring import compute_safety_score
 
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
-HEADERS = {"User-Agent": "safelease-hackathon-2026"}
+HEADERS = {"User-Agent": "staysignal-hackathon-2026"}
 DEFAULT_UMICH_MODEL = "@azure-1/gpt-5.2"
 
 _client = None

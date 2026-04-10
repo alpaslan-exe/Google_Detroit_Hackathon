@@ -1,26 +1,41 @@
-export default function ExplanationPanel({ explanation, isCompliant }) {
-  const dummyExplanation = `This property has a safety score of 31/100, indicating high risk for potential tenants. The most urgent issue is that the landlord has not registered with the city, which is required by Detroit's 2024 Rental Ordinance — this means the property has not been inspected for safety compliance. You can file a complaint by calling Detroit BSEED at 313-224-2733 or visiting detroitmi.gov/bseed.`
+const VERDICT = {
+  'HIGH RISK':     { tone: 'high',     headline: 'DO NOT SIGN WITHOUT VERIFICATION' },
+  'MODERATE RISK': { tone: 'moderate', headline: 'PROCEED WITH CAUTION' },
+  'LOW RISK':      { tone: 'low',      headline: 'SIGNALS LOOK CLEAN' },
+}
 
-  const text = explanation || dummyExplanation
+function splitReasons(text) {
+  if (!text) return []
+  const byNewline = text.split(/\n+/).map(s => s.trim()).filter(Boolean)
+  if (byNewline.length >= 2) return byNewline
+  const bySentence = text.match(/[^.!?]+[.!?]+/g)
+  if (bySentence) return bySentence.map(s => s.trim()).filter(Boolean)
+  return [text.trim()]
+}
+
+export default function ExplanationPanel({ explanation, label, isCompliant }) {
+  const verdict = VERDICT[label] || VERDICT['HIGH RISK']
+  const fallback = 'Awaiting advisor response. This section will render the plain-language legal summary once the scoring pipeline completes.'
+  const reasons = splitReasons(explanation || fallback).slice(0, 4)
 
   return (
-    <div className="explanation-panel">
-      <div className="explanation-header">
-        <span className="ai-badge">✨ AI Tenant Advisor</span>
-      </div>
-      <p className="explanation-text">{text}</p>
+    <div className={`decision-panel ${verdict.tone}`}>
+      <div className="decision-label">RISK ASSESSMENT</div>
+      <div className="decision-verdict">{verdict.headline}</div>
 
-      {!isCompliant && (
-        <div className="rights-box">
-          <h3 className="rights-title">⚖️ Your Tenant Rights</h3>
-          <ul className="rights-list">
-            <li>This landlord is operating <strong>illegally</strong> under Detroit's 2024 Rental Registration Ordinance.</li>
-            <li>You have the right to <strong>withhold rent into escrow</strong> until violations are corrected.</li>
-            <li>You can file a complaint: call <strong>313-224-2733</strong> or visit <a href="https://detroitmi.gov/bseed" target="_blank" rel="noreferrer">detroitmi.gov/bseed</a></li>
-            <li>Contact <strong>Lakeshore Legal Aid</strong> for free tenant legal help: 1-888-783-8190</li>
-          </ul>
-        </div>
-      )}
+      <ul className="decision-reasons">
+        {reasons.map((reason, i) => (
+          <li key={i} className="decision-reason">{reason}</li>
+        ))}
+      </ul>
+
+      <div className="actions">
+        <button type="button" className="action-btn">Generate Complaint Letter</button>
+        <button type="button" className="action-btn">Request BSEED Inspection</button>
+        {!isCompliant && (
+          <button type="button" className="action-btn">Apply Rent Escrow</button>
+        )}
+      </div>
     </div>
   )
 }

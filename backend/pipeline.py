@@ -10,14 +10,44 @@ except ImportError:
 
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-NOMINATIM_HEADERS = {"User-Agent": "safelease-hackathon-2026"}
+NOMINATIM_HEADERS = {"User-Agent": "staysignal-hackathon-2026"}
 DEFAULT_UMICH_MODEL = "@azure-1/gpt-5.2"
 
 _client = None
 
+# Nominatim `type` values that clearly indicate a residential rental candidate
+_RESIDENTIAL_TYPES = {
+    "house", "detached", "semi_detached", "semidetached_house", "terrace",
+    "apartments", "residential", "bungalow", "dormitory", "static_caravan",
+}
+# Nominatim `type` values that clearly indicate something that is NOT a rental
+_NON_RESIDENTIAL_TYPES = {
+    "hotel", "motel", "hostel", "guest_house",
+    "office", "commercial", "retail", "shop", "supermarket", "mall",
+    "restaurant", "cafe", "bar", "pub", "fast_food", "food_court",
+    "hospital", "clinic", "pharmacy",
+    "school", "university", "college", "kindergarten",
+    "church", "cathedral", "mosque", "synagogue",
+    "bank", "parking", "fuel", "museum", "theatre", "cinema", "stadium",
+    "attraction",
+}
+
+
+def _is_residential(place_class: str, place_type: str):
+    """Return True (residential), False (clearly non-residential), or None (unknown)."""
+    t = (place_type or "").lower()
+    c = (place_class or "").lower()
+    if t in _RESIDENTIAL_TYPES:
+        return True
+    if t in _NON_RESIDENTIAL_TYPES:
+        return False
+    if c in {"tourism", "shop", "amenity", "leisure", "office", "healthcare"}:
+        return False
+    return None
+
 
 def geocode(address: str) -> dict:
-    """Resolve a Detroit address to coordinates."""
+    """Resolve a Detroit address to coordinates + place metadata."""
     normalized_address = _normalize_address(address)
     response = requests.get(
         NOMINATIM_URL,
@@ -35,37 +65,72 @@ def geocode(address: str) -> dict:
         "address": first.get("display_name", normalized_address),
         "lat": float(first["lat"]),
         "lng": float(first["lon"]),
+        "place_class": first.get("class", "") or "",
+        "place_type": first.get("type", "") or "",
     }
 
 
-def generate_explanation(address: str, score_data: dict) -> str:
-    """Generate a tenant-facing explanation with a safe fallback."""
+def generate_explanation(location: dict, score_data: dict) -> str:
+    """Generate a scannable 3-line risk summary with a safe fallback."""
+    address = location.get("address", "")
+    place_class = location.get("place_class", "")
+    place_type = location.get("place_type", "")
+    residential = _is_residential(place_class, place_type)
+
     api_key = os.getenv("UMICH_API_KEY", "").strip()
     base_url = os.getenv("UMICH_BASE_URL", "").strip()
     if not api_key or not base_url:
-        return _local_explanation(score_data)
+        return _local_explanation(score_data, residential)
 
-    compliance_status = (
-        "REGISTERED with BSEED"
-        if score_data["is_compliant"]
-        else "no BSEED rental registration found nearby - worth verifying directly"
+    # Adapt the prompt by place type
+    if residential is True:
+        compliance_value = (
+            "REGISTERED with BSEED"
+            if score_data.get("is_compliant")
+            else "no BSEED rental registration found within 100m - worth verifying directly"
+        )
+        context_block = (
+            f"Address: {address}\n"
+            f"Safety score: {score_data['score']} / 100 ({score_data['label']})\n"
+            f"Crime incidents nearby (500m, last 90 days): {score_data['crime_count']}\n"
+            f"Blight violations nearby (300m): {score_data['blight_count']}\n"
+            f"Rental compliance: {compliance_value}"
+        )
+        framing = "This is a residential address. One of the three reasons should reference rental compliance."
+    elif residential is False:
+        type_desc = (place_type or "non-residential location").replace("_", " ")
+        context_block = (
+            f"Address: {address}\n"
+            f"Property type: {type_desc} (not a rental unit)\n"
+            f"Safety score: {score_data['score']} / 100 ({score_data['label']})\n"
+            f"Crime incidents nearby (500m, last 90 days): {score_data['crime_count']}\n"
+            f"Blight violations nearby (300m): {score_data['blight_count']}"
+        )
+        framing = (
+            f"This address is a {type_desc}, NOT a residential rental. Do NOT mention BSEED, "
+            "rental registration, Certificate of Compliance, tenant rights, or landlords. "
+            "Frame the reasons around neighborhood safety for a visitor or user of this place."
+        )
+    else:
+        context_block = (
+            f"Address: {address}\n"
+            f"Safety score: {score_data['score']} / 100 ({score_data['label']})\n"
+            f"Crime incidents nearby (500m, last 90 days): {score_data['crime_count']}\n"
+            f"Blight violations nearby (300m): {score_data['blight_count']}"
+        )
+        framing = "The property type is unknown — do not assume it is a residential rental."
+
+    prompt = (
+        "You are summarizing Detroit public-safety data for someone evaluating this location.\n\n"
+        f"{context_block}\n\n"
+        f"{framing}\n\n"
+        "Write exactly 3 short reasons that explain the safety score, grounded in the specific numbers above.\n"
+        "- One reason per line, separated by a newline character.\n"
+        "- Each line must cite at least one specific number from the data.\n"
+        "- Maximum 22 words per line. No bullets, no numbering, no markdown, no headers.\n"
+        "- Tone: direct and scannable.\n\n"
+        "Do NOT assert any landlord is operating illegally."
     )
-
-    prompt = f"""You are a tenant rights advisor in Detroit, Michigan.
-A tenant has searched an address and received this safety data:
-
-Address: {address}
-Overall safety score: {score_data['score']} / 100 ({score_data['label']})
-Crime incidents nearby (500m, last 90 days): {score_data['crime_count']}
-Blight violations in the area (300m): {score_data['blight_count']}
-Rental compliance status: {compliance_status}
-
-Write 3 sentences in plain English:
-1. What this score means for their safety
-2. The most important thing to be aware of
-3. One specific action they can take right now (verify the Certificate of Compliance, check with BSEED, etc.)
-
-Do NOT assert the landlord is operating illegally - that requires the tenant to verify the Certificate of Compliance themselves."""
 
     try:
         response = _umich_client(api_key, base_url).responses.create(
@@ -74,35 +139,63 @@ Do NOT assert the landlord is operating illegally - that requires the tenant to 
             input=prompt,
         )
     except Exception:
-        return _local_explanation(score_data)
+        return _local_explanation(score_data, residential)
 
     explanation = (getattr(response, "output_text", "") or "").strip()
-    return explanation or _local_explanation(score_data)
+    return explanation or _local_explanation(score_data, residential)
 
 
 def chat_with_context(message: str, address: str, score_data: dict, history: list) -> str:
-    """Continue a tenant-advisor conversation with property context."""
+    """Continue a conversation with property context. Adapts to residential vs non-residential."""
     api_key = os.getenv("UMICH_API_KEY", "").strip()
     base_url = os.getenv("UMICH_BASE_URL", "").strip()
     if not api_key or not base_url:
         return _local_chat_reply(message, score_data)
 
-    compliance_status = (
-        "REGISTERED with BSEED"
-        if score_data.get("is_compliant")
-        else "no BSEED rental registration found nearby"
+    place_class = score_data.get("place_class", "")
+    place_type = score_data.get("place_type", "")
+    residential = _is_residential(place_class, place_type)
+
+    data_lines = [
+        f"- Address: {address}",
+        f"- Safety score: {score_data.get('score', 'N/A')} / 100 ({score_data.get('label', 'N/A')})",
+        f"- Crime incidents nearby (500 m, last 90 days): {score_data.get('crime_count', 'N/A')}",
+        f"- Blight violations nearby (300 m): {score_data.get('blight_count', 'N/A')}",
+    ]
+    if residential is True:
+        compliance_value = (
+            "REGISTERED with BSEED"
+            if score_data.get("is_compliant")
+            else "no BSEED rental registration found nearby"
+        )
+        data_lines.append(f"- Rental compliance: {compliance_value}")
+        property_framing = "This is a residential address in Detroit."
+    elif residential is False:
+        type_desc = (place_type or "non-residential location").replace("_", " ")
+        property_framing = (
+            f"This address is a {type_desc}, NOT a residential rental. "
+            "Do NOT frame answers around tenant rights, rental compliance, BSEED registration, "
+            "or Certificates of Compliance unless the user explicitly asks. "
+            "Focus on what actually matters for someone visiting or using this kind of place — "
+            "safety, parking, walkability, neighborhood context."
+        )
+    else:
+        property_framing = "The property type is not clearly residential — do not assume it is a rental."
+
+    data_block = "\n".join(data_lines)
+
+    system_prompt = (
+        "You are helping someone evaluate a location in Detroit. Answer their questions directly and concisely.\n\n"
+        f"{property_framing}\n\n"
+        "Context:\n"
+        f"{data_block}\n\n"
+        "Rules:\n"
+        "- Reference the data only when relevant to the user's question.\n"
+        "- Do not force every answer to be about tenant rights or rental compliance.\n"
+        "- If you cannot verify something from the context (live store hours, weather, specific prices), say so briefly and offer what you can.\n"
+        "- Do NOT assert any landlord is operating illegally without verification.\n"
+        "- Prefer short paragraphs and bullet points when listing things."
     )
-
-    system_prompt = f"""You are a tenant rights advisor in Detroit, Michigan helping a renter evaluate a property.
-
-Property context:
-- Address: {address}
-- Safety score: {score_data.get('score', 'N/A')} / 100 ({score_data.get('label', 'N/A')})
-- Crime incidents nearby (500 m, last 90 days): {score_data.get('crime_count', 'N/A')}
-- Blight violations nearby (300 m): {score_data.get('blight_count', 'N/A')}
-- Rental compliance: {compliance_status}
-
-Answer the tenant's questions concisely and in plain English. Limit your answers to topics related to this property, tenant rights in Detroit, rental compliance, safety, and housing. If a question is unrelated to these topics, politely decline and redirect to property-related questions. Do NOT assert the landlord is operating illegally without the tenant verifying the Certificate of Compliance themselves."""
 
     messages = [{"role": "system", "content": system_prompt}]
     for turn in history:
@@ -126,11 +219,13 @@ Answer the tenant's questions concisely and in plain English. Limit your answers
 def full_pipeline(address: str, blight_df) -> dict:
     location = geocode(address)
     score_data = compute_safety_score(blight_df, location["lat"], location["lng"])
-    explanation = generate_explanation(location["address"], score_data)
+    explanation = generate_explanation(location, score_data)
     return {
         "address": location["address"],
         "lat": location["lat"],
         "lng": location["lng"],
+        "place_class": location.get("place_class", ""),
+        "place_type": location.get("place_type", ""),
         **score_data,
         "explanation": explanation,
     }
@@ -191,32 +286,23 @@ def _local_chat_reply(message: str, score_data: dict) -> str:
     )
 
 
-def _local_explanation(score_data: dict) -> str:
-    label = score_data["label"].lower()
-    sentence_one = (
-        f"This address scores {score_data['score']} out of 100, which puts it in the {label} range for a renter doing a quick safety check."
-    )
+def _local_explanation(score_data: dict, residential=None) -> str:
+    score = score_data.get("score", "N/A")
+    label = score_data.get("label", "HIGH RISK").lower()
+    crime = score_data.get("crime_count", 0)
+    blight = score_data.get("blight_count", 0)
+    is_compliant = score_data.get("is_compliant")
 
-    if not score_data["is_compliant"]:
-        sentence_two = (
-            "The biggest thing to verify is rental registration status, because no nearby BSEED registration was found for this location."
+    line_one = f"Safety index sits at {score}/100, placing this location in the {label} tier."
+    line_two = f"{crime} reported crime incidents within 500m in the last 90 days and {blight} active blight tickets within 300m."
+
+    if residential is False:
+        line_three = (
+            f"With {crime} recent incidents nearby, plan visits during daylight and be mindful of walking routes and parking."
         )
-        sentence_three = (
-            "Before signing, ask the landlord for the Certificate of Compliance and confirm the address directly with BSEED."
-        )
-    elif score_data["blight_count"] > 10:
-        sentence_two = (
-            f"There are {score_data['blight_count']} active nearby blight issues, which suggests you should inspect the block and building condition carefully."
-        )
-        sentence_three = (
-            "Visit the property in person, document visible repair issues, and ask the landlord what has been fixed recently."
-        )
+    elif is_compliant:
+        line_three = "A BSEED rental registration was found nearby; still ask the landlord for the current Certificate of Compliance for this specific unit."
     else:
-        sentence_two = (
-            f"There have been {score_data['crime_count']} recent nearby crime incidents, so neighborhood conditions still deserve a closer look."
-        )
-        sentence_three = (
-            "Check the block at a few different times of day and keep copies of any repair or safety promises in writing."
-        )
+        line_three = "No BSEED rental registration was found within 100m; verify the Certificate of Compliance directly before signing anything."
 
-    return " ".join([sentence_one, sentence_two, sentence_three])
+    return "\n".join([line_one, line_two, line_three])

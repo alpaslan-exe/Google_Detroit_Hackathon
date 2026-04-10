@@ -1,4 +1,4 @@
-# SafeLease Backend — Scoring Engine + Address Pipeline
+# StaySignal Backend — Scoring Engine + Address Pipeline
 
 Flask service that turns a Detroit coordinate into a 0–100 safety score,
 combining live crime data, locally-cached blight violations, and live rental

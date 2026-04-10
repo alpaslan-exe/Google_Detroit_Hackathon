@@ -1,18 +1,60 @@
-App.jsx
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AddressSearch from './components/AddressSearch'
 import ScoreCard from './components/ScoreCard'
 import ExplanationPanel from './components/ExplanationPanel'
 import Chatbot from './components/Chatbot'
-import LeafletMap from './leafletMap'
+import Landing from './components/Landing'
+import LeafletMap from './leafletMap.jsx'
 import './App.css'
 
+const PURPOSES = [
+  { id: 'rent',   label: 'RENT',   hint: 'LEGAL COMPLIANCE FOCUS' },
+  { id: 'buy',    label: 'BUY',    hint: 'INVESTMENT RISK FOCUS' },
+  { id: 'travel', label: 'TRAVEL', hint: 'SHORT-STAY SAFETY' },
+  { id: 'work',   label: 'WORK',   hint: 'COMMUTE + PARKING' },
+  { id: 'visit',  label: 'VISIT',  hint: 'HOURLY SNAPSHOT' },
+]
+
+const SIDEBAR_MIN = 360
+const SIDEBAR_MAX = 900
+
 function App() {
+  const [launched, setLaunched] = useState(false)
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [purpose, setPurpose] = useState('rent')
+  const [sidebarWidth, setSidebarWidth] = useState(520)
+  const [dragging, setDragging] = useState(false)
+  const sidebarBodyRef = useRef(null)
 
-const handleSearch = async (address) => {
+  useEffect(() => {
+    if (result && sidebarBodyRef.current) {
+      sidebarBodyRef.current.scrollTo({ top: 0 })
+    }
+  }, [result])
+
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e) => {
+      const maxAllowed = Math.min(SIDEBAR_MAX, window.innerWidth - 320)
+      const next = Math.max(SIDEBAR_MIN, Math.min(maxAllowed, window.innerWidth - e.clientX))
+      setSidebarWidth(next)
+    }
+    const onUp = () => setDragging(false)
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [dragging])
+
+  const handleSearch = async (address) => {
     setLoading(true)
     setError(null)
     setResult(null)
@@ -30,86 +72,102 @@ const handleSearch = async (address) => {
     }
   }
 
+  if (!launched) {
+    return <Landing onLaunch={() => setLaunched(true)} />
+  }
+
   return (
     <div className="app">
-
       <header className="header">
         <div className="header-inner">
-          <div className="logo">
-            <span className="logo-icon">🏠</span>
-            <span className="logo-text">Detroit <strong>SafeLease</strong></span>
-          </div>
-          <p className="tagline">Know before you sign.</p>
+          <button
+            type="button"
+            className="logo logo-btn"
+            onClick={() => { setLaunched(false); setResult(null); setError(null) }}
+            aria-label="Return to home"
+          >
+            <span className="logo-text">STAY<strong>SIGNAL</strong></span>
+          </button>
+          <p className="tagline">TENANT SAFETY SYSTEM // V1</p>
         </div>
       </header>
 
-      <main className="main">
-        <section className="hero">
-          <h1 className="hero-title">Is your rental safe?</h1>
-          <p className="hero-sub">
-            Type any Detroit address to get a real-time safety score based on crime, blight violations, and rental compliance data.
-          </p>
-          <AddressSearch onSearch={handleSearch} loading={loading} />
-          {error && <p className="error-msg">⚠️ {error}</p>}
-        </section>
+      <div className="split-main">
+        <div className="map-pane">
+          <LeafletMap result={result} />
+        </div>
 
+        <div
+          className={`divider ${dragging ? 'dragging' : ''}`}
+          onMouseDown={(e) => { e.preventDefault(); setDragging(true) }}
+          role="separator"
+          aria-label="Resize sidebar"
+          aria-orientation="vertical"
+        />
 
-     {result && (
-          <section className="map-section">
-            <div className="map-card">
-              <div className="map-header">
-                <h2 className="map-title">Map</h2>
-                <p className="map-subtitle">{result.address}</p>
-              </div>
-
-              <div className="map-frame">
-                <LeafletMap result={result} />
-              </div>
+        <aside className="sidebar-pane" style={{ width: sidebarWidth }}>
+          <div className="sidebar-search">
+            <div className="purpose-tabs" role="tablist" aria-label="Search purpose">
+              {PURPOSES.map((p) => (
+                <button
+                  key={p.id}
+                  role="tab"
+                  aria-selected={purpose === p.id}
+                  className={`purpose-tab ${purpose === p.id ? 'active' : ''}`}
+                  onClick={() => setPurpose(p.id)}
+                >
+                  {p.label}
+                </button>
+              ))}
             </div>
-          </section>
-        )}
 
-
-
-        {loading && (
-          <div className="loading">
-            <div className="spinner" />
-            <p>Checking city databases…</p>
+            <div className="sidebar-label">QUERY // {PURPOSES.find(p => p.id === purpose).hint}</div>
+            <h1 className="sidebar-title">Know the building before you decide.</h1>
+            <AddressSearch onSearch={handleSearch} loading={loading} />
+            {error && <p className="error-msg">{error}</p>}
           </div>
-        )}
 
-        {result && (
-          <section className="results">
-            <ScoreCard result={result} />
-            <ExplanationPanel explanation={result.explanation} isCompliant={result.is_compliant} />
-            <Chatbot result={result} />
-          </section>
-        )}
+          <div className="sidebar-body" ref={sidebarBodyRef}>
+            {loading && (
+              <div className="loading">
+                <div className="spinner" />
+                <p>Checking city databases...</p>
+              </div>
+            )}
 
-        {!result && !loading && (
-          <div className="stat-banner">
-            <div className="stat">
-              <span className="stat-num">82,000</span>
-              <span className="stat-label">Detroit rental properties</span>
-            </div>
-            <div className="stat-divider" />
-            <div className="stat">
-              <span className="stat-num" style={{color: '#ef4444'}}>10%</span>
-              <span className="stat-label">are compliant with city codes</span>
-            </div>
-            <div className="stat-divider" />
-            <div className="stat">
-              <span className="stat-num">0</span>
-              <span className="stat-label">tools to check before you move in</span>
-            </div>
+            {result && (
+              <section className="results">
+                <ScoreCard result={result} />
+                <ExplanationPanel
+                  explanation={result.explanation}
+                  label={result.label}
+                  isCompliant={result.is_compliant}
+                />
+                <Chatbot result={result} />
+              </section>
+            )}
+
+            {!result && !loading && (
+              <div className="stat-banner">
+                <div className="stat">
+                  <span className="stat-num">82,000</span>
+                  <span className="stat-label">Detroit rental properties</span>
+                </div>
+                <div className="stat-divider" />
+                <div className="stat">
+                  <span className="stat-num" style={{color: '#ef4444'}}>10%</span>
+                  <span className="stat-label">are compliant with city codes</span>
+                </div>
+                <div className="stat-divider" />
+                <div className="stat">
+                  <span className="stat-num">0</span>
+                  <span className="stat-label">tools to check before you move in</span>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </main>
-
-
-      <footer className="footer">
-        <p>Data sourced from Detroit Open Data Portal · Updated daily · Built at Google × CSG × T4SG Hackathon 2026</p>
-      </footer>
+        </aside>
+      </div>
     </div>
   )
 }

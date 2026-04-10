@@ -1,5 +1,5 @@
 """
-Detroit SafeLease scoring engine.
+StaySignal scoring engine.
 
 Public API:
     load_blight(csv_path) -> pandas.DataFrame

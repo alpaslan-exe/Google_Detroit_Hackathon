@@ -13,21 +13,20 @@ export default function AddressSearch({ onSearch, loading }) {
   return (
     <form className="search-form" onSubmit={handleSubmit}>
       <div className="search-box">
-        <span className="search-icon">📍</span>
         <input
           className="search-input"
           type="text"
-          placeholder="e.g. 1234 Woodward Ave"
+          placeholder="> ENTER DETROIT ADDRESS"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           disabled={loading}
           autoFocus
         />
         <button className="search-btn" type="submit" disabled={loading || !input.trim()}>
-          {loading ? 'Checking…' : 'Check Safety'}
+          {loading ? 'SCANNING' : 'RUN SCAN'}
         </button>
       </div>
-      <p className="search-hint">Detroit, MI is automatically appended</p>
+      <p className="search-hint">// DETROIT, MI APPENDED AUTOMATICALLY</p>
     </form>
   )
 }

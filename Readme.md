@@ -1,10 +1,10 @@
-# Detroit SafeLease
+# StaySignal
 
 **Google × CSG × T4SG Hackathon · April 10, 2026**
 
 > Detroit has over 120,000 rental properties, but only about 8% are fully compliant with the city's 2024 Rental Ordinance. The data exists — crime, blight, registrations — but it's scattered across three government portals that no tenant has time to query.
 >
-> SafeLease is what happens when you put that data in front of the person who actually needs it, at the moment they're about to sign a lease.
+> StaySignal is what happens when you put that data in front of the person who actually needs it, at the moment they're about to sign a lease.
 
 ---
 
@@ -49,7 +49,7 @@ Type:     1234 Woodward Ave, Detroit, MI
 ## Why it's innovative
 
 **1. It's a decision tool, not a dashboard.**
-Most civic-tech projects translate data into charts. SafeLease translates data into one of three actions: *sign*, *negotiate*, or *report*. The score is a means to that decision, not the end.
+Most civic-tech projects translate data into charts. StaySignal translates data into one of three actions: *sign*, *negotiate*, or *report*. The score is a means to that decision, not the end.
 
 **2. It composes three datasets that have never been joined for tenants.**
 Detroit's police crime data, BSEED rental registrations, and DAH blight violations are all public, but no city tool combines them — and certainly not with a tenant as the user. The combination is what makes the score meaningful: a registered property in a high-crime area is a *different* recommendation than an unregistered property in a quiet block.
@@ -170,6 +170,6 @@ Detailed setup, environment variables, and API contracts are in [`backend/README
 
 ## A note on what the score does and doesn't claim
 
-The compliance signal is a *relative* one, not a legal verdict. A property without a nearby BSEED registration could be an unregistered rental — or it could simply not be a residential rental at all (a business, a vacant lot). SafeLease surfaces this as something to verify, not as proof of wrongdoing. The complaint letter is drafted with that caveat baked in: it asks for an inspection, not for an indictment.
+The compliance signal is a *relative* one, not a legal verdict. A property without a nearby BSEED registration could be an unregistered rental — or it could simply not be a residential rental at all (a business, a vacant lot). StaySignal surfaces this as something to verify, not as proof of wrongdoing. The complaint letter is drafted with that caveat baked in: it asks for an inspection, not for an indictment.
 
 This matters because the tool is meant to *inform* a tenant's decision, not to substitute for one.

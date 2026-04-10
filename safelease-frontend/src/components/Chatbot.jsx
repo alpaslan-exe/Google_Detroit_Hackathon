@@ -1,14 +1,54 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
+
+function renderInline(text, keyPrefix) {
+  const parts = []
+  const boldRe = /\*\*([^*]+)\*\*/g
+  let last = 0
+  let match
+  let i = 0
+  while ((match = boldRe.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index))
+    parts.push(<strong key={`${keyPrefix}-b${i++}`}>{match[1]}</strong>)
+    last = match.index + match[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
+function renderMessage(text) {
+  const lines = text.split('\n')
+  return lines.map((rawLine, idx) => {
+    const stripped = rawLine.replace(/\s+$/, '')
+    if (stripped.trim() === '') {
+      return <div key={idx} className="chatbot-gap" />
+    }
+    const bullet = /^\s*[-*]\s+/.test(stripped)
+    const heading = /^\s*#{1,6}\s+/.test(stripped)
+    const content = stripped
+      .replace(/^\s*[-*]\s+/, '')
+      .replace(/^\s*#{1,6}\s+/, '')
+    const cls = ['chatbot-line']
+    if (bullet) cls.push('bullet')
+    if (heading) cls.push('heading')
+    return (
+      <div key={idx} className={cls.join(' ')}>
+        {renderInline(content, `l${idx}`)}
+      </div>
+    )
+  })
+}
 
 export default function Chatbot({ result }) {
   const [history, setHistory] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const bottomRef = useRef(null)
+  const messagesRef = useRef(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (history.length === 0 && !loading) return
+    const el = messagesRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }, [history, loading])
 
   const send = async () => {
@@ -34,8 +74,10 @@ export default function Chatbot({ result }) {
             crime_count: result.crime_count,
             blight_count: result.blight_count,
             is_compliant: result.is_compliant,
+            place_class: result.place_class,
+            place_type: result.place_type,
           },
-          history: history,
+          history,
         }),
       })
       const data = await res.json()
@@ -59,40 +101,43 @@ export default function Chatbot({ result }) {
   return (
     <div className="chatbot">
       <div className="chatbot-header">
-        <span className="ai-badge">💬 Ask the AI Tenant Advisor</span>
+        <span className="scorecard-label">// SECURE LINE</span>
+        <span className="ai-badge">LIVE SESSION</span>
       </div>
 
-      <div className="chatbot-messages">
-        {history.length === 0 && (
+      <div className="chatbot-messages" ref={messagesRef}>
+        {history.length === 0 && !loading && (
           <p className="chatbot-empty">
-            Ask anything about this property — compliance, crime data, your rights, or next steps.
+            Ask anything about this property or the surrounding area. You can reference the score, the raw data, or ask for context the numbers do not show.
           </p>
         )}
+
         {history.map((msg, i) => (
           <div key={i} className={`chatbot-msg chatbot-msg--${msg.role}`}>
             <span className="chatbot-role">
-              {msg.role === 'user' ? '🧑 You' : '✨ Advisor'}
+              {msg.role === 'user' ? '> YOU' : '[AI]'}
             </span>
-            <p className="chatbot-text">{msg.content}</p>
+            <div className="chatbot-text">{renderMessage(msg.content)}</div>
           </div>
         ))}
+
         {loading && (
           <div className="chatbot-msg chatbot-msg--assistant chatbot-msg--loading">
-            <span className="chatbot-role">✨ Advisor</span>
-            <p className="chatbot-text chatbot-typing">
+            <span className="chatbot-role">[AI]</span>
+            <div className="chatbot-text chatbot-typing">
               <span /><span /><span />
-            </p>
+            </div>
           </div>
         )}
-        {error && <p className="error-msg">⚠️ {error}</p>}
-        <div ref={bottomRef} />
+
+        {error && <p className="error-msg">{error}</p>}
       </div>
 
       <div className="chatbot-input-row">
         <input
           className="chatbot-input"
           type="text"
-          placeholder="Ask a follow-up question…"
+          placeholder="> ASK A FOLLOW-UP"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -103,7 +148,7 @@ export default function Chatbot({ result }) {
           onClick={send}
           disabled={loading || !input.trim()}
         >
-          Send
+          SEND
         </button>
       </div>
     </div>
