@@ -3,6 +3,7 @@ import { useState } from 'react'
 import AddressSearch from './components/AddressSearch'
 import ScoreCard from './components/ScoreCard'
 import ExplanationPanel from './components/ExplanationPanel'
+import Chatbot from './components/Chatbot'
 import LeafletMap from './leafletMap'
 import './App.css'
 
@@ -81,6 +82,7 @@ const handleSearch = async (address) => {
           <section className="results">
             <ScoreCard result={result} />
             <ExplanationPanel explanation={result.explanation} isCompliant={result.is_compliant} />
+            <Chatbot result={result} />
           </section>
         )}
 
