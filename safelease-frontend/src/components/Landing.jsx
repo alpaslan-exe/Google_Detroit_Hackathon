@@ -1,190 +1,167 @@
 import { useEffect, useRef, useState } from 'react'
 
-const DATA_SOURCES = [
-  {
-    id: '01',
-    name: 'CRIME',
-    source: 'Detroit Police Department — RMS',
-    desc: 'Reported incidents within a 500 meter radius over the last 90 days, queried live against the city\'s ArcGIS REST API. Zero caching between searches.',
-  },
-  {
-    id: '02',
-    name: 'BLIGHT',
-    source: 'Department of Administrative Hearings',
-    desc: 'Active unpaid violations within 300 meters — Responsible dispositions from the last 2 years with an outstanding balance. 27k filtered rows out of 816k raw.',
-  },
-  {
-    id: '03',
-    name: 'COMPLIANCE',
-    source: 'BSEED Rental Registry',
-    desc: 'Any registered rental record within 100 meters. A proxy signal, not a legal verdict — surfaces whether the building has entered the city system at all.',
-  },
-]
-
 const PURPOSES = [
-  { id: '01', label: 'RENT',   hint: 'Weights rental compliance and blight indicators; advisor frames around tenant rights and BSEED process.' },
-  { id: '02', label: 'BUY',    hint: 'Weights property condition and neighborhood blight; advisor frames around investment risk and due diligence.' },
-  { id: '03', label: 'TRAVEL', hint: 'Weights violent crime types and short-stay safety; advisor frames around walkability and arrival routing.' },
-  { id: '04', label: 'WORK',   hint: 'Weights daytime crime patterns; advisor frames around parking, commuting, and surrounding businesses.' },
-  { id: '05', label: 'VISIT',  hint: 'Quick hourly snapshot with lighter context; advisor answers focused questions about the immediate block.' },
+  { id: 'rent',   label: 'Rent' },
+  { id: 'buy',    label: 'Buy' },
+  { id: 'travel', label: 'Travel' },
+  { id: 'work',   label: 'Work' },
+  { id: 'visit',  label: 'Visit' },
 ]
 
-function useCountUp(target, duration = 1800, active = true) {
-  const [value, setValue] = useState(0)
-  const rafRef = useRef(null)
-  useEffect(() => {
-    if (!active || target == null) return
-    cancelAnimationFrame(rafRef.current)
-    const start = performance.now()
-    const tick = (now) => {
-      const t = Math.min((now - start) / duration, 1)
-      const eased = 1 - Math.pow(1 - t, 3)
-      setValue(target * eased)
-      if (t < 1) rafRef.current = requestAnimationFrame(tick)
-    }
-    rafRef.current = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [target, duration, active])
-  return value
-}
+export default function Landing({ onSearchFromLanding, purpose, setPurpose }) {
+  const [input, setInput] = useState('')
+  const [scrolled, setScrolled] = useState(false)
+  const landingRef = useRef(null)
+  const searchRef = useRef(null)
 
-function useIntersection(ref, threshold = 0.25) {
-  const [visible, setVisible] = useState(false)
   useEffect(() => {
-    const el = ref.current
+    const el = landingRef.current
     if (!el) return
-    const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setVisible(true) },
-      { threshold }
-    )
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [ref, threshold])
-  return visible
-}
+    const onScroll = () => setScrolled(el.scrollTop > 40)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
 
-export default function Landing({ onLaunch }) {
-  const statsRef = useRef(null)
-  const statsVisible = useIntersection(statsRef)
-  const rentals = useCountUp(124000, 1800, statsVisible)
-  const compliant = useCountUp(8, 1400, statsVisible)
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    const raw = input.trim()
+    if (!raw) return
+    onSearchFromLanding(raw)
+  }
+
+  const focusSearch = () => {
+    searchRef.current?.focus()
+    searchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 
   return (
-    <div className="landing">
-      <nav className="landing-nav">
+    <div ref={landingRef} className="landing">
+      <nav className={`landing-nav ${scrolled ? 'scrolled' : ''}`}>
         <div className="landing-logo">
-          STAY<strong>SIGNAL</strong>
+          Safe<strong>Stay</strong>
         </div>
-        <button className="landing-nav-btn" onClick={onLaunch}>
-          LAUNCH SCANNER →
-        </button>
+        <div className="landing-nav-links">
+          <a href="#how">How It Works</a>
+          <a href="#cities">Cities</a>
+          <a href="#about">About</a>
+        </div>
       </nav>
 
       <section className="landing-hero">
-        <div className="landing-eyebrow">STAYSIGNAL // DETROIT // V1</div>
-        <h1 className="landing-title">
-          Know the building<br />
-          <span className="landing-title-accent">before you decide.</span>
-        </h1>
-        <p className="landing-sub">
-          One address, three live public datasets, one verdict in under two seconds.
-          No account, no tracking, no ads. Built for the person who actually has to sign,
-          stay, or show up.
-        </p>
-        <button className="landing-cta" onClick={onLaunch}>
-          <span className="landing-cta-prompt">&gt;</span>
-          <span className="landing-cta-text">RUN A SCAN</span>
-          <span className="landing-cta-cursor" />
-        </button>
-      </section>
+        <div className="landing-hero-bg" />
+        <div className="landing-hero-inner">
+          <h1 className="landing-title">Know Before You Stay.</h1>
+          <p className="landing-sub">
+            Real crime data. Real compliance records. Any address.
+          </p>
 
-      <section className="landing-section">
-        <div className="landing-eyebrow">// DATA PIPELINE</div>
-        <h2 className="landing-h2">
-          Three Detroit datasets. Live-queried. Composed into one score.
-        </h2>
+          <div className="landing-purposes">
+            {PURPOSES.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={`landing-purpose ${purpose === p.id ? 'active' : ''}`}
+                onClick={() => setPurpose(p.id)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
 
-        <div className="landing-sources">
-          {DATA_SOURCES.map((s) => (
-            <div key={s.id} className="landing-source">
-              <div className="landing-source-num">{s.id}</div>
-              <div className="landing-source-name">{s.name}</div>
-              <div className="landing-source-src">{s.source}</div>
-              <p className="landing-source-desc">{s.desc}</p>
-            </div>
-          ))}
+          <form className="landing-search" onSubmit={handleSubmit}>
+            <input
+              ref={searchRef}
+              className="landing-search-input"
+              type="text"
+              placeholder="Enter any address..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              autoFocus
+            />
+            <button
+              type="submit"
+              className="landing-search-btn"
+              disabled={!input.trim()}
+            >
+              CHECK
+            </button>
+          </form>
         </div>
       </section>
 
-      <section className="landing-section">
-        <div className="landing-eyebrow">// PURPOSE MODES</div>
-        <h2 className="landing-h2">
-          Same data. Different lens.
-        </h2>
-        <p className="landing-sub landing-sub-inline">
-          Pick the reason you are looking. The score weighting shifts to match, and the advisor reframes its answers accordingly.
-        </p>
-
-        <div className="landing-purposes">
-          {PURPOSES.map((p) => (
-            <div key={p.id} className="landing-purpose">
-              <span className="landing-purpose-num">{p.id}</span>
-              <span className="landing-purpose-label">{p.label}</span>
-              <span className="landing-purpose-hint">{p.hint}</span>
-            </div>
-          ))}
+      <section className="landing-features" id="how">
+        <div className="landing-feature">
+          <div className="landing-feature-title">Live Crime Data</div>
+          <p className="landing-feature-desc">
+            Pulled from city police departments, updated daily.
+          </p>
+        </div>
+        <div className="landing-feature">
+          <div className="landing-feature-title">Rental Compliance</div>
+          <p className="landing-feature-desc">
+            Know if your landlord is legally registered with the city.
+          </p>
+        </div>
+        <div className="landing-feature">
+          <div className="landing-feature-title">AI Legal Advisor</div>
+          <p className="landing-feature-desc">
+            Tenant rights guidance and complaint letters in seconds.
+          </p>
         </div>
       </section>
 
-      <section ref={statsRef} className="landing-section landing-stats-section">
-        <div className="landing-eyebrow">// WHY IT EXISTS</div>
-        <h2 className="landing-h2">
-          The data exists. Nobody has the time to query it.
-        </h2>
-
-        <div className="landing-stat-row">
-          <div className="landing-stat">
-            <div className="landing-stat-num">{Math.round(rentals).toLocaleString()}</div>
-            <div className="landing-stat-label">DETROIT RENTAL PROPERTIES</div>
+      <section className="landing-stats" id="cities">
+        <div className="landing-stats-inner">
+          <div className="landing-stat-item">
+            <span className="landing-stat-value">120,000+</span>
+            <span className="landing-stat-name">Detroit rental properties</span>
           </div>
-          <div className="landing-stat-divider" />
-          <div className="landing-stat">
-            <div className="landing-stat-num landing-stat-num--red">~{Math.round(compliant)}%</div>
-            <div className="landing-stat-label">FULLY COMPLIANT WITH THE 2024 ORDINANCE</div>
+          <div className="landing-stat-sep">·</div>
+          <div className="landing-stat-item">
+            <span className="landing-stat-value">~8%</span>
+            <span className="landing-stat-name">fully compliant</span>
           </div>
-          <div className="landing-stat-divider" />
-          <div className="landing-stat">
-            <div className="landing-stat-num">0</div>
-            <div className="landing-stat-label">TENANT-FACING TOOLS BEFORE THIS</div>
+          <div className="landing-stat-sep">·</div>
+          <div className="landing-stat-item">
+            <span className="landing-stat-value">3</span>
+            <span className="landing-stat-name">live data sources</span>
+          </div>
+          <div className="landing-stat-sep">·</div>
+          <div className="landing-stat-item">
+            <span className="landing-stat-value">DAILY</span>
+            <span className="landing-stat-name">updated</span>
           </div>
         </div>
-
-        <p className="landing-stat-caption">
-          Detroit publishes crime, blight, and rental registration data every day. It sits in three
-          separate government portals and nobody has stitched it together for the person about to sign a
-          lease, check into a hotel, or park a car. StaySignal is the stitch.
-        </p>
       </section>
 
-      <section className="landing-final">
-        <div className="landing-eyebrow">// READY</div>
-        <h2 className="landing-h2 landing-final-h2">
-          Scan any Detroit address.
-        </h2>
-        <button className="landing-cta landing-cta-final" onClick={onLaunch}>
-          <span className="landing-cta-prompt">&gt;</span>
-          <span className="landing-cta-text">RUN A SCAN</span>
-          <span className="landing-cta-cursor" />
+      <section className="landing-impact" id="about">
+        <p className="landing-impact-quote">
+          <em>"Ca'Mya Davis was 11 months old."</em>
+        </p>
+        <p className="landing-impact-body">
+          In 2024, an infant died in a Detroit rental property that had never
+          been registered with the city. Her landlord was operating outside the
+          law. Her mother had no way to know.
+        </p>
+        <p className="landing-impact-punchline">Don't rent blind.</p>
+        <button
+          type="button"
+          className="landing-impact-cta"
+          onClick={focusSearch}
+        >
+          CHECK YOUR ADDRESS
         </button>
       </section>
 
       <footer className="landing-footer">
-        <div className="landing-footer-line">
-          STAYSIGNAL // V1 // GOOGLE × CSG × T4SG HACKATHON // APRIL 2026
+        <div className="landing-footer-logo">
+          Safe<strong>Stay</strong>
         </div>
-        <div className="landing-footer-sub">
-          Data sourced from the Detroit Open Data Portal. Scores are calibrated, not arbitrary.
-          This is not legal advice.
+        <div className="landing-footer-sources">
+          DETROIT POLICE DEPT · BSEED · DAH · NOMINATIM
+        </div>
+        <div className="landing-footer-tag">
+          Built for Detroit. Powered by public data.
         </div>
       </footer>
     </div>

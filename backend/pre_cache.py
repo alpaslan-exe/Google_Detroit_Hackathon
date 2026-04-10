@@ -1,7 +1,10 @@
 """
 Pre-cache data before the hackathon so we don't depend on live APIs during demo.
 Run: python pre_cache.py
-Produces: data/blight_violations.csv and data/crime_cache.json
+Produces:
+  - data/blight_violations.csv
+  - data/crime_cache.json
+  - data/crime_points.json
 """
 import io
 import json
@@ -32,6 +35,8 @@ DEMO_POINTS = [
     ("midtown", 42.3519, -83.0664),
     ("eastside", 42.3682, -82.9929),
 ]
+
+CRIME_POINTS_PATH = os.path.join(DATA_DIR, "crime_points.json")
 
 
 def download_blight():
@@ -76,6 +81,31 @@ def fetch_crime(lat, lng, radius=500, days=90):
     return r.json()
 
 
+def fetch_crime_ids(days=90):
+    cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d 00:00:00")
+    params = {
+        "where": f"incident_occurred_at >= TIMESTAMP '{cutoff}'",
+        "returnIdsOnly": "true",
+        "f": "json",
+    }
+    r = requests.get(CRIME_SERVICE, params=params, timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
+def fetch_crime_features_by_ids(object_ids):
+    data = {
+        "objectIds": ",".join(str(object_id) for object_id in object_ids),
+        "outFields": "offense_category,incident_occurred_at",
+        "returnGeometry": "true",
+        "outSR": "4326",
+        "f": "json",
+    }
+    r = requests.post(CRIME_SERVICE, data=data, timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
 def cache_crime():
     out = os.path.join(DATA_DIR, "crime_cache.json")
     cache = {}
@@ -94,6 +124,49 @@ def cache_crime():
     print(f"[crime] done: {out}")
 
 
+def cache_crime_points(batch_size=250):
+    print("[crime-points] fetching recent incident ids for the last 90 days ...")
+    payload = fetch_crime_ids(days=90)
+    object_ids = sorted(payload.get("objectIds", []))
+    total = len(object_ids)
+    print(f"[crime-points] found {total:,} incidents")
+
+    points = []
+    for start in range(0, total, batch_size):
+        batch = object_ids[start : start + batch_size]
+        print(
+            f"[crime-points] fetching batch {start // batch_size + 1} "
+            f"({start + 1:,}-{min(start + len(batch), total):,} of {total:,}) ..."
+        )
+        data = fetch_crime_features_by_ids(batch)
+        for feature in data.get("features", []):
+            geometry = feature.get("geometry") or {}
+            attributes = feature.get("attributes") or {}
+            x = geometry.get("x")
+            y = geometry.get("y")
+            if x is None or y is None:
+                continue
+            points.append(
+                {
+                    "lat": y,
+                    "lng": x,
+                    "weight": 1,
+                    "offense_category": attributes.get("offense_category"),
+                    "incident_occurred_at": attributes.get("incident_occurred_at"),
+                }
+            )
+
+    output = {
+        "cached_at": datetime.utcnow().isoformat() + "Z",
+        "feature_count": len(points),
+        "features": points,
+    }
+    with open(CRIME_POINTS_PATH, "w") as f:
+        json.dump(output, f)
+    print(f"[crime-points] done: {CRIME_POINTS_PATH} ({len(points):,} points)")
+
+
 if __name__ == "__main__":
     download_blight()
     cache_crime()
+    cache_crime_points()

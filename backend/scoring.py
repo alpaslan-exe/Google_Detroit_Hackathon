@@ -191,13 +191,13 @@ def compute_safety_score(blight_df, lat, lng):
     neighborhoods from each other.
     """
     crime_count = count_crimes_nearby(lat, lng, radius=500)
-    crime_score = max(0.0, 40 - crime_count * 0.15)
+    crime_score = max(0.0, 70 - crime_count * 0.2625)
 
     blight_count = count_blight_nearby(blight_df, lat, lng, radius=300)
-    blight_score = max(0.0, 30 - blight_count * 1.0)
+    blight_score = max(0.0, 15 - blight_count * 0.5)
 
     is_compliant = check_rental_compliance(lat, lng, radius=100)
-    compliance_score = 30 if is_compliant else 0
+    compliance_score = 15 if is_compliant else 0
 
     total = round(crime_score + blight_score + compliance_score, 1)
     if total >= 70:

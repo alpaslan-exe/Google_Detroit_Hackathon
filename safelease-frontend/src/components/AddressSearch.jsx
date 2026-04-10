@@ -1,7 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-export default function AddressSearch({ onSearch, loading }) {
-  const [input, setInput] = useState('')
+export default function AddressSearch({ onSearch, loading, initialValue = '' }) {
+  const [input, setInput] = useState(initialValue)
+
+  useEffect(() => {
+    if (initialValue) setInput(initialValue)
+  }, [initialValue])
 
   const handleSubmit = (e) => {
     e.preventDefault()

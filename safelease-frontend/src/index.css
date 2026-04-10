@@ -3,10 +3,10 @@
 html, body, #root { height: 100%; }
 
 body {
-  background: #050A14;
-  color: #CBD5E1;
-  font-family: 'Space Grotesk', system-ui, sans-serif;
-  font-size: 15px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 17px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

@@ -26,7 +26,20 @@ function App() {
   const [purpose, setPurpose] = useState('rent')
   const [sidebarWidth, setSidebarWidth] = useState(520)
   const [dragging, setDragging] = useState(false)
+  const [crimePoints, setCrimePoints] = useState([])
+  const [landingInput, setLandingInput] = useState('')
   const sidebarBodyRef = useRef(null)
+
+  useEffect(() => {
+    fetch('/crime_points.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return
+        const features = Array.isArray(data?.features) ? data.features : Array.isArray(data) ? data : []
+        setCrimePoints(features)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (result && sidebarBodyRef.current) {
@@ -72,8 +85,21 @@ function App() {
     }
   }
 
+  const handleSearchFromLanding = (raw) => {
+    setLandingInput(raw)
+    setLaunched(true)
+    const full = raw.toLowerCase().includes('detroit') ? raw : `${raw}, Detroit, MI`
+    handleSearch(full)
+  }
+
   if (!launched) {
-    return <Landing onLaunch={() => setLaunched(true)} />
+    return (
+      <Landing
+        onSearchFromLanding={handleSearchFromLanding}
+        purpose={purpose}
+        setPurpose={setPurpose}
+      />
+    )
   }
 
   return (
@@ -94,7 +120,7 @@ function App() {
 
       <div className="split-main">
         <div className="map-pane">
-          <LeafletMap result={result} />
+          <LeafletMap result={result} crimePoints={crimePoints} />
         </div>
 
         <div
@@ -123,7 +149,11 @@ function App() {
 
             <div className="sidebar-label">QUERY // {PURPOSES.find(p => p.id === purpose).hint}</div>
             <h1 className="sidebar-title">Know the building before you decide.</h1>
-            <AddressSearch onSearch={handleSearch} loading={loading} />
+            <AddressSearch
+              onSearch={handleSearch}
+              loading={loading}
+              initialValue={landingInput}
+            />
             {error && <p className="error-msg">{error}</p>}
           </div>
 
@@ -145,25 +175,6 @@ function App() {
                 />
                 <Chatbot result={result} />
               </section>
-            )}
-
-            {!result && !loading && (
-              <div className="stat-banner">
-                <div className="stat">
-                  <span className="stat-num">82,000</span>
-                  <span className="stat-label">Detroit rental properties</span>
-                </div>
-                <div className="stat-divider" />
-                <div className="stat">
-                  <span className="stat-num" style={{color: '#ef4444'}}>10%</span>
-                  <span className="stat-label">are compliant with city codes</span>
-                </div>
-                <div className="stat-divider" />
-                <div className="stat">
-                  <span className="stat-num">0</span>
-                  <span className="stat-label">tools to check before you move in</span>
-                </div>
-              </div>
             )}
           </div>
         </aside>
