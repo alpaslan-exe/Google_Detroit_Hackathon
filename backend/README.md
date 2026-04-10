@@ -49,14 +49,14 @@ curl 'http://localhost:8000/api/score?lat=42.437448&lng=-83.245584'
 Response:
 ```json
 {
-  "score": 87.8,
+  "score": 86.2,
   "label": "LOW RISK",
   "crime_count": 41,
-  "crime_score": 33.9,
+  "crime_score": 59.2,
   "blight_count": 6,
-  "blight_score": 24.0,
+  "blight_score": 12.0,
   "is_compliant": true,
-  "compliance_score": 30
+  "compliance_score": 15
 }
 ```
 
@@ -65,11 +65,11 @@ Response:
 | `score`            | float  | total 0–100                                                             |
 | `label`            | string | `"LOW RISK"` ≥70 · `"MODERATE RISK"` ≥45 · `"HIGH RISK"` otherwise      |
 | `crime_count`      | int    | incidents within **500m** in the **last 90 days** (live ArcGIS)         |
-| `crime_score`      | float  | 0–40                                                                    |
+| `crime_score`      | float  | 0–70                                                                    |
 | `blight_count`     | int    | active unpaid "Responsible" blight tickets within **300m** (local CSV)  |
-| `blight_score`     | float  | 0–30                                                                    |
+| `blight_score`     | float  | 0–15                                                                    |
 | `is_compliant`     | bool   | any BSEED rental registration found within **100m** (live ArcGIS)       |
-| `compliance_score` | int    | `30` if compliant, `0` otherwise                                        |
+| `compliance_score` | int    | `15` if compliant, `0` otherwise                                        |
 
 **400** — `{"error": "lat and lng query params required (floats)"}`
 
@@ -102,14 +102,14 @@ Response shape:
   "address": "19935 Patton St, Detroit, MI 48219, USA",
   "lat": 42.437448,
   "lng": -83.245584,
-  "score": 87.8,
+  "score": 86.2,
   "label": "LOW RISK",
   "crime_count": 41,
-  "crime_score": 33.9,
+  "crime_score": 59.2,
   "blight_count": 6,
-  "blight_score": 24.0,
+  "blight_score": 12.0,
   "is_compliant": true,
-  "compliance_score": 30,
+  "compliance_score": 15,
   "explanation": "..."
 }
 ```
@@ -124,9 +124,9 @@ Notes:
 ## Scoring formula (and why it differs from the Build Guide)
 
 ```python
-crime_score      = max(0, 40 - crime_count  * 0.15)
-blight_score     = max(0, 30 - blight_count * 1.00)
-compliance_score = 30 if is_compliant else 0
+crime_score      = max(0, 70 - crime_count  * 0.2625)
+blight_score     = max(0, 15 - blight_count * 0.5)
+compliance_score = 15 if is_compliant else 0
 total            = crime_score + blight_score + compliance_score
 ```
 
@@ -135,16 +135,29 @@ but testing against 8 real Detroit coordinates showed **every** address in the
 city would land in HIGH RISK — Detroit residential neighborhoods routinely have
 30–60 crimes in 500m over 90 days, and a handful of historical blight tickets
 within 300m. The curves were recalibrated so the three risk tiers actually
-separate meaningful categories:
+separate meaningful categories.
+
+The component weights were later rebalanced to **70 / 15 / 15** (crime / blight /
+compliance) so the dominant environmental signal — recent crime within walking
+distance — carries most of the score, and blight / registration act as
+secondary modifiers. The per-component decay coefficients were scaled in
+proportion, so the shape of each curve is preserved.
 
 | sample                | crime | blight | compliant | score | label          |
 |-----------------------|-------|--------|-----------|-------|----------------|
-| 19935 PATTON (residential, registered) | 41  | 6   | ✓ | 87.8 | LOW RISK       |
-| 3009 NEWPORT                           | 12  | 22  | ✓ | 76.2 | LOW RISK       |
-| 14400 PATTON (registered, blighted area) | 51 | 70 | ✓ | 62.4 | MODERATE RISK |
-| eastside (42.3682,-82.9929, no rental reg) | 14 | 5 | ✗ | 62.9 | MODERATE RISK |
-| midtown (42.3519,-83.0664)             | 171 | 6  | ✗ | 38.4 | HIGH RISK     |
-| downtown (42.3314,-83.0458)            | 315 | 3  | ✗ | 27.0 | HIGH RISK     |
+| 19935 PATTON (residential, registered) | 41  | 6   | ✓ | 86.2 | LOW RISK       |
+| 3009 NEWPORT                           | 12  | 22  | ✓ | 85.9 | LOW RISK       |
+| 14400 PATTON (registered, blighted area) | 51 | 70 | ✓ | 71.6 | LOW RISK      |
+| eastside (42.3682,-82.9929, no rental reg) | 14 | 5 | ✗ | 78.8 | LOW RISK      |
+| midtown (42.3519,-83.0664)             | 171 | 6  | ✗ | 37.1 | HIGH RISK     |
+| downtown (42.3314,-83.0458)            | 315 | 3  | ✗ | 13.5 | HIGH RISK     |
+
+> **Caveat:** with the 70/15/15 weighting, the MODERATE tier collapses for these
+> calibration points — all the previously-MODERATE samples now land in LOW RISK
+> because crime is the dominant signal and these addresses all have relatively
+> low crime counts. The label thresholds (`70` / `45`) were not retuned; if you
+> want MODERATE to be meaningful under the new weights, the thresholds or the
+> crime decay coefficient need another calibration pass.
 
 ## Blight CSV pre-filter
 

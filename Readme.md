@@ -108,20 +108,22 @@ The score is intentionally explainable, not a black box. Three independent compo
 
 | Component       | Weight | Source                              | Reflects                  |
 |-----------------|--------|-------------------------------------|---------------------------|
-| Crime           | 40 pts | DPD RMS (live ArcGIS)               | Environmental risk        |
-| Blight          | 30 pts | DAH violations CSV (local, filtered)| Structural / safety risk  |
-| Compliance      | 30 pts | BSEED rental registry (live ArcGIS) | Legal status              |
+| Crime           | 70 pts | DPD RMS (live ArcGIS)               | Environmental risk        |
+| Blight          | 15 pts | DAH violations CSV (local, filtered)| Structural / safety risk  |
+| Compliance      | 15 pts | BSEED rental registry (live ArcGIS) | Legal status              |
 
 ```python
-crime_score      = max(0, 40 - crime_count  * 0.15)   # softer slope than naive linear
-blight_score     = max(0, 30 - blight_count * 1.00)
-compliance_score = 30 if is_compliant else 0
+crime_score      = max(0, 70 - crime_count  * 0.2625)  # softer slope than naive linear
+blight_score     = max(0, 15 - blight_count * 0.5)
+compliance_score = 15 if is_compliant else 0
 total            = crime_score + blight_score + compliance_score
 
 # 70+  → LOW RISK
 # 45+  → MODERATE RISK
 # else → HIGH RISK
 ```
+
+Crime is weighted heavily because it's the signal tenants care about most and the one that varies most across Detroit neighborhoods. Blight and compliance act as secondary modifiers.
 
 The blight CSV is pre-filtered on startup to "active problems only" — `Responsible` disposition, last 2 years, with an unpaid balance. This drops ~97% of the 816 k raw rows down to ~27 k meaningful records, so a "blight count" reflects actual unresolved issues rather than historical noise.
 
