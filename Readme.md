@@ -143,6 +143,204 @@ Geocoding is handled by Nominatim (OpenStreetMap), also free.
 
 ---
 
+## API reference
+
+The backend runs on `http://localhost:8000` by default. CORS is enabled for all origins.
+
+---
+
+### `GET /`
+
+Health check.
+
+**Response `200`**
+```json
+{ "status": "ok", "service": "detroit-safelease-backend" }
+```
+
+---
+
+### `GET /api/score_by_address`
+
+Main endpoint used by the React frontend. Geocodes an address, runs all three scoring components, and returns a plain-English explanation.
+
+**Query params**
+
+| Param     | Type   | Required | Notes                                              |
+|-----------|--------|----------|----------------------------------------------------|
+| `address` | string | ✅        | Any Detroit street address. Backend appends `, Detroit, MI` if omitted. |
+
+**Example**
+```bash
+curl 'http://localhost:8000/api/score_by_address?address=19935+Patton+St'
+```
+
+**Response `200`**
+```json
+{
+  "address": "19935, Patton Street, Evergreen Lahser 7/8, Detroit, Wayne County, Michigan, 48219, United States",
+  "lat": 42.4372582,
+  "lng": -83.2453411,
+  "score": 85.2,
+  "label": "LOW RISK",
+  "crime_count": 39,
+  "crime_score": 34.1,
+  "blight_count": 9,
+  "blight_score": 21.0,
+  "is_compliant": true,
+  "compliance_score": 30,
+  "explanation": "A safety score of 85.2/100 suggests this area is considered low risk overall..."
+}
+```
+
+| Field              | Type    | Notes                                                                 |
+|--------------------|---------|-----------------------------------------------------------------------|
+| `address`          | string  | Nominatim-resolved display name                                       |
+| `lat`              | float   | WGS-84 latitude                                                       |
+| `lng`              | float   | WGS-84 longitude                                                      |
+| `score`            | float   | 0–100 composite safety score                                          |
+| `label`            | string  | `"LOW RISK"` (≥70) · `"MODERATE RISK"` (≥45) · `"HIGH RISK"` (<45)   |
+| `crime_count`      | int     | Incidents within **500 m** in the last **90 days** (live ArcGIS)      |
+| `crime_score`      | float   | 0–40 component score                                                  |
+| `blight_count`     | int     | Active unpaid blight tickets within **300 m** (local CSV)             |
+| `blight_score`     | float   | 0–30 component score                                                  |
+| `is_compliant`     | bool    | `true` = a BSEED rental registration exists within **100 m**. This is a *signal to verify*, not a legal verdict. |
+| `compliance_score` | int     | `30` if compliant, `0` otherwise                                      |
+| `explanation`      | string  | LLM-generated tenant-facing summary (falls back to a local template if LLM is unavailable) |
+
+**Error responses**
+
+| Status | Body                                              | Cause                        |
+|--------|---------------------------------------------------|------------------------------|
+| `400`  | `{"error": "address query param required"}`       | Missing `address`            |
+| `404`  | `{"error": "address not found: ..."}`             | Nominatim couldn't geocode   |
+| `502`  | `{"error": "upstream request failed: ..."}`       | ArcGIS or Nominatim outage   |
+
+---
+
+### `GET /api/score`
+
+Low-level scoring endpoint — takes coordinates directly, skipping geocoding and LLM explanation. Useful for testing the scoring engine in isolation.
+
+**Query params**
+
+| Param | Type  | Required |
+|-------|-------|----------|
+| `lat` | float | ✅        |
+| `lng` | float | ✅        |
+
+**Example**
+```bash
+curl 'http://localhost:8000/api/score?lat=42.437448&lng=-83.245584'
+```
+
+**Response `200`**
+```json
+{
+  "score": 87.8,
+  "label": "LOW RISK",
+  "crime_count": 41,
+  "crime_score": 33.9,
+  "blight_count": 6,
+  "blight_score": 24.0,
+  "is_compliant": true,
+  "compliance_score": 30
+}
+```
+
+Same fields as `/api/score_by_address` except `address`, `lat`, `lng`, and `explanation` are not included.
+
+**Error responses**
+
+| Status | Body                                                       | Cause               |
+|--------|------------------------------------------------------------|---------------------|
+| `400`  | `{"error": "lat and lng query params required (floats)"}` | Missing or non-numeric params |
+
+---
+
+### `GET /api/geocode`
+
+Resolves a plain-text address to WGS-84 coordinates via Nominatim. Only needed if the frontend wants coordinates before requesting a score.
+
+**Query params**
+
+| Param     | Type   | Required |
+|-----------|--------|----------|
+| `address` | string | ✅        |
+
+**Example**
+```bash
+curl 'http://localhost:8000/api/geocode?address=1234+Woodward+Ave'
+```
+
+**Response `200`**
+```json
+{
+  "address": "1234, Woodward Avenue, Greektown, Detroit, Wayne County, Michigan, 48201, United States",
+  "lat": 42.3332378,
+  "lng": -83.0479574
+}
+```
+
+**Error responses**
+
+| Status | Body                                              | Cause                     |
+|--------|---------------------------------------------------|---------------------------|
+| `400`  | `{"error": "address query param required"}`       | Missing `address`         |
+| `404`  | `{"error": "address not found: ..."}`             | Nominatim couldn't geocode |
+| `502`  | `{"error": "geocoding request failed: ..."}`      | Nominatim outage          |
+
+---
+
+### `POST /api/chat`
+
+Continues a property-specific tenant-advisor conversation. Every turn includes the full score context so the model can give grounded answers.
+
+**Request body (JSON)**
+
+| Field        | Type   | Required | Notes                                              |
+|--------------|--------|----------|----------------------------------------------------|
+| `message`    | string | ✅        | The user's latest question                         |
+| `address`    | string |          | Resolved display address from `/api/score_by_address` |
+| `score_data` | object |          | Score fields to give the model property context (see below) |
+| `history`    | array  |          | Prior turns as `[{"role": "user"|"assistant", "content": "..."}]` |
+
+`score_data` object:
+
+| Field         | Type   |
+|---------------|--------|
+| `score`       | float  |
+| `label`       | string |
+| `crime_count` | int    |
+| `blight_count`| int    |
+| `is_compliant`| bool   |
+
+**Example**
+```bash
+curl -X POST http://localhost:8000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "message": "Can I withhold rent legally?",
+    "address": "19935 Patton St, Detroit, MI",
+    "score_data": {"score": 85.2, "label": "LOW RISK", "crime_count": 39, "blight_count": 9, "is_compliant": true},
+    "history": []
+  }'
+```
+
+**Response `200`**
+```json
+{ "reply": "..." }
+```
+
+**Error responses**
+
+| Status | Body                                                | Cause                      |
+|--------|-----------------------------------------------------|----------------------------|
+| `400`  | `{"error": "message required"}`                     | Missing or blank `message` |
+| `500`  | `{"error": "An error occurred processing your request"}` | Unexpected server error |
+
+---
+
 ## Quick start
 
 ```bash
