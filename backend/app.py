@@ -6,10 +6,10 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 try:
-    from .pipeline import full_pipeline, geocode
+    from .pipeline import chat_followup, full_pipeline, geocode
     from .scoring import compute_safety_score, load_blight
 except ImportError:
-    from pipeline import full_pipeline, geocode
+    from pipeline import chat_followup, full_pipeline, geocode
     from scoring import compute_safety_score, load_blight
 
 load_dotenv()
@@ -64,6 +64,23 @@ def api_score_by_address():
         return jsonify({"error": str(exc)}), 404
     except requests.RequestException as exc:
         return jsonify({"error": f"upstream request failed: {exc}"}), 502
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    body = request.get_json(silent=True) or {}
+    address = (body.get("address") or "").strip()
+    message = (body.get("message") or "").strip()
+
+    if not address:
+        return jsonify({"error": "address field required"}), 400
+    if not message:
+        return jsonify({"error": "message field required"}), 400
+
+    reply, found = chat_followup(address, message)
+    if not found:
+        return jsonify({"error": "No prior analysis found for this address. Search the address first to generate a safety report."}), 404
+    return jsonify({"reply": reply})
 
 
 if __name__ == "__main__":

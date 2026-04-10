@@ -1,7 +1,10 @@
+import logging
 import os
 
 import requests
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 try:
     from .scoring import compute_safety_score
@@ -13,7 +16,21 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 NOMINATIM_HEADERS = {"User-Agent": "safelease-hackathon-2026"}
 DEFAULT_UMICH_MODEL = "@azure-1/gpt-5.2"
 
+HOUSING_SYSTEM_PROMPT = (
+    "You are a tenant rights advisor in Detroit, Michigan. "
+    "You help tenants evaluate rental properties, understand their rights, "
+    "and assess neighborhood safety. "
+    "You ONLY discuss topics related to: housing safety and conditions, "
+    "rental compliance and registrations (BSEED, Certificate of Compliance), "
+    "tenant rights and lease guidance, neighborhood safety, crime and blight data, "
+    "and Detroit housing resources. "
+    "If a user asks about anything unrelated to housing, politely decline and "
+    "redirect them to housing-related questions."
+)
+
 _client = None
+# In-memory conversation store keyed by Nominatim display_name (address string).
+_conversation_store: dict = {}
 
 
 def geocode(address: str) -> dict:
@@ -39,7 +56,7 @@ def geocode(address: str) -> dict:
 
 
 def generate_explanation(address: str, score_data: dict) -> str:
-    """Generate a tenant-facing explanation with a safe fallback."""
+    """Generate a tenant-facing explanation and seed the conversation history."""
     api_key = os.getenv("UMICH_API_KEY", "").strip()
     base_url = os.getenv("UMICH_BASE_URL", "").strip()
     if not api_key or not base_url:
@@ -51,33 +68,76 @@ def generate_explanation(address: str, score_data: dict) -> str:
         else "no BSEED rental registration found nearby - worth verifying directly"
     )
 
-    prompt = f"""You are a tenant rights advisor in Detroit, Michigan.
-A tenant has searched an address and received this safety data:
+    user_message = (
+        f"A tenant has searched an address and received this safety data:\n\n"
+        f"Address: {address}\n"
+        f"Overall safety score: {score_data['score']} / 100 ({score_data['label']})\n"
+        f"Crime incidents nearby (500m, last 90 days): {score_data['crime_count']}\n"
+        f"Blight violations in the area (300m): {score_data['blight_count']}\n"
+        f"Rental compliance status: {compliance_status}\n\n"
+        f"Write 3 sentences in plain English:\n"
+        f"1. What this score means for their safety\n"
+        f"2. The most important thing to be aware of\n"
+        f"3. One specific action they can take right now (verify the Certificate of Compliance, check with BSEED, etc.)\n\n"
+        f"Do NOT assert the landlord is operating illegally - that requires the tenant to verify the Certificate of Compliance themselves."
+    )
 
-Address: {address}
-Overall safety score: {score_data['score']} / 100 ({score_data['label']})
-Crime incidents nearby (500m, last 90 days): {score_data['crime_count']}
-Blight violations in the area (300m): {score_data['blight_count']}
-Rental compliance status: {compliance_status}
-
-Write 3 sentences in plain English:
-1. What this score means for their safety
-2. The most important thing to be aware of
-3. One specific action they can take right now (verify the Certificate of Compliance, check with BSEED, etc.)
-
-Do NOT assert the landlord is operating illegally - that requires the tenant to verify the Certificate of Compliance themselves."""
+    messages = [
+        {"role": "system", "content": HOUSING_SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
 
     try:
-        response = _umich_client(api_key, base_url).responses.create(
+        response = _umich_client(api_key, base_url).chat.completions.create(
             model=os.getenv("UMICH_MODEL", DEFAULT_UMICH_MODEL),
-            instructions="You are a helpful assistant.",
-            input=prompt,
+            messages=messages,
         )
+        explanation = response.choices[0].message.content.strip()
     except Exception:
         return _local_explanation(score_data)
 
-    explanation = (getattr(response, "output_text", "") or "").strip()
-    return explanation or _local_explanation(score_data)
+    if not explanation:
+        return _local_explanation(score_data)
+
+    # Store conversation history so follow-up chats retain context.
+    _conversation_store[address] = messages + [
+        {"role": "assistant", "content": explanation}
+    ]
+    return explanation
+
+
+def chat_followup(address: str, user_message: str) -> tuple:
+    """Continue the conversation for a previously analysed address.
+
+    Returns a (reply, found) tuple where *found* is False when no prior
+    analysis exists for the address.
+    """
+    api_key = os.getenv("UMICH_API_KEY", "").strip()
+    base_url = os.getenv("UMICH_BASE_URL", "").strip()
+    if not api_key or not base_url:
+        return "Chat is unavailable: UMICH_API_KEY and UMICH_BASE_URL must be set in .env.", True
+
+    history = _conversation_store.get(address)
+    if history is None:
+        return None, False
+
+    updated_history = history + [{"role": "user", "content": user_message}]
+
+    try:
+        response = _umich_client(api_key, base_url).chat.completions.create(
+            model=os.getenv("UMICH_MODEL", DEFAULT_UMICH_MODEL),
+            messages=updated_history,
+        )
+        reply = response.choices[0].message.content.strip()
+    except Exception as exc:
+        logger.exception("chat_followup request failed for address %r: %s", address, exc)
+        return "Chat request failed. Please try again later.", True
+
+    # Persist the updated history.
+    _conversation_store[address] = updated_history + [
+        {"role": "assistant", "content": reply}
+    ]
+    return reply, True
 
 
 def full_pipeline(address: str, blight_df) -> dict:
