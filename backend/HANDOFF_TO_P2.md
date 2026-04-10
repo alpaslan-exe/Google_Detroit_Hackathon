@@ -1,7 +1,7 @@
 # Handoff to P2 — Backend / Server
 
 The scoring engine is live on `main`. This doc is everything you need to
-build your layer (geocoding + Claude explanation + address-based route)
+build your layer (geocoding + UMich LLM explanation + address-based route)
 on top of it.
 
 ## 1. Get it running (5 minutes)
@@ -65,7 +65,7 @@ Two new routes on top of the one above:
 
 ### `GET /api/score_by_address?address=<string>`
 - Geocode the address → call `compute_safety_score()` directly (don't HTTP self-call)
-  → feed result to Claude API → return combined JSON
+  → feed result to the UMich hackathon LLM API → return combined JSON
 - Response:
   ```json
   {
@@ -82,17 +82,21 @@ Two new routes on top of the one above:
 ```python
 import os
 import requests
-import anthropic
+from openai import OpenAI
 from scoring import compute_safety_score
 
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
 HEADERS = {"User-Agent": "safelease-hackathon-2026"}
+DEFAULT_UMICH_MODEL = "@azure-1/gpt-5.2"
 
 _client = None
-def _claude():
+def _umich_client():
     global _client
     if _client is None:
-        _client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from .env
+        _client = OpenAI(
+            api_key=os.getenv("UMICH_API_KEY"),
+            base_url=os.getenv("UMICH_BASE_URL"),
+        )
     return _client
 
 
@@ -118,7 +122,7 @@ def generate_explanation(address, score_data):
     compliance_status = (
         "REGISTERED with BSEED"
         if score_data["is_compliant"]
-        else "no BSEED rental registration found nearby — worth verifying directly"
+        else "no BSEED rental registration found nearby - worth verifying directly"
     )
     prompt = f"""You are a tenant rights advisor in Detroit, Michigan.
 A tenant has searched an address and received this safety data:
@@ -135,14 +139,14 @@ Write 3 sentences in plain English:
 3. One specific action they can take right now (verify the Certificate of
    Compliance, check with BSEED, etc.)
 
-Do NOT assert the landlord is operating illegally — that requires the tenant
+Do NOT assert the landlord is operating illegally - that requires the tenant
 to verify the Certificate of Compliance themselves."""
-    msg = _claude().messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=300,
-        messages=[{"role": "user", "content": prompt}],
+    response = _umich_client().responses.create(
+        model=os.getenv("UMICH_MODEL", DEFAULT_UMICH_MODEL),
+        instructions="You are a helpful assistant.",
+        input=prompt,
     )
-    return msg.content[0].text
+    return response.output_text
 
 
 def full_pipeline(address, blight_df):
@@ -185,11 +189,13 @@ def api_score_by_address():
         return jsonify({"error": str(e)}), 404
 ```
 
-## 6. Put your real Claude API key in `.env`
+## 6. Put your UMich API credentials in `.env`
 
 ```bash
 # Edit backend/.env
-ANTHROPIC_API_KEY=sk-ant-...your-real-key...
+UMICH_API_KEY=your_api_key_here
+UMICH_BASE_URL=https://apiv2.umgpt.umich.edu/v1
+UMICH_MODEL=@azure-1/gpt-5.2
 ```
 
 `.env` is gitignored — do not commit the key.
@@ -223,7 +229,7 @@ CORS is already on; React can fetch directly.
 ## Critical gotchas
 
 1. **Do not label `is_compliant: false` as "landlord is illegal"** in the
-   Claude prompt. BSEED registration is a relative signal, not a legal
+   model prompt. BSEED registration is a relative signal, not a legal
    verdict. A `false` result can also mean the address just isn't a rental
    (downtown commercial, vacant lot). See `README.md` → "Known caveats".
 
@@ -248,7 +254,7 @@ CORS is already on; React can fetch directly.
   known caveats
 - `backend/scoring.py` — if you want to understand what `compute_safety_score()`
   actually does
-- Build Guide §2.4 (Nominatim), §2.5 (Claude prompt) — mostly valid, just use
+- Build Guide §2.4 (Nominatim), §2.5 (LLM prompt) — mostly valid, just use
   the corrected compliance phrasing above
 
 Ping P1 if anything doesn't work.

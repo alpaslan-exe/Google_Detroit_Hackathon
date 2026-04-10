@@ -57,6 +57,45 @@ Response:
 
 CORS is enabled for all origins.
 
+### `GET /api/geocode?address=<string>`
+
+```bash
+curl 'http://localhost:8000/api/geocode?address=1234+Woodward+Ave'
+```
+
+Response:
+```json
+{
+  "address": "1234 Woodward Ave, Detroit, MI 48226, USA",
+  "lat": 42.3314,
+  "lng": -83.0458
+}
+```
+
+### `GET /api/score_by_address?address=<string>`
+
+```bash
+curl 'http://localhost:8000/api/score_by_address?address=19935+Patton+St'
+```
+
+Response shape:
+```json
+{
+  "address": "19935 Patton St, Detroit, MI 48219, USA",
+  "lat": 42.437448,
+  "lng": -83.245584,
+  "score": 87.8,
+  "label": "LOW RISK",
+  "crime_count": 41,
+  "crime_score": 33.9,
+  "blight_count": 6,
+  "blight_score": 24.0,
+  "is_compliant": true,
+  "compliance_score": 30,
+  "explanation": "..."
+}
+```
+
 ## Scoring formula (and why it differs from the Build Guide)
 
 ```python
@@ -116,7 +155,7 @@ The real org is `qvkbeam7Wirps6zC`, and the crime dataset is
    - `false` = "no registration found nearby" (could be unregistered
      rental, OR could be a non-rental property like a business or vacant lot)
    Do **not** label a `false` result as "landlord is operating illegally" in
-   the UI or Claude prompt — the user still has to verify Certificate of
+   the UI or model prompt — the user still has to verify Certificate of
    Compliance status themselves.
 
 2. **The "8% compliant" statistic should cite the fully-compliant figure**,
@@ -142,7 +181,8 @@ backend/
 ├── scoring.py          # all business logic
 ├── pre_cache.py        # one-time data download + demo point caching
 ├── requirements.txt
-├── .env                # ANTHROPIC_API_KEY (used by P2, not by P1)
+├── .env                # UMICH_API_KEY / UMICH_BASE_URL / UMICH_MODEL (used by P2)
+├── .env.example        # local template for the UMich hackathon LLM config
 ├── .gitignore
 └── data/               # gitignored
     ├── blight_violations.csv   (128 MB, downloaded by pre_cache.py)
