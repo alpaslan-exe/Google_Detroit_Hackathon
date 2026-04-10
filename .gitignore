@@ -1,2 +1,23 @@
+# Python
+venv/
 .venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+
+# Data (large files, downloaded at runtime)
+backend/data/blight_violations.csv
+backend/data/blight_violations.zip
 safelease-frontend/DetroitAddresses.geojson
+
+# Frontend
+node_modules/
+safelease-frontend/node_modules/
+safelease-frontend/.npm/_logs/
+
+# Misc
+.jac
+.DS_Store
