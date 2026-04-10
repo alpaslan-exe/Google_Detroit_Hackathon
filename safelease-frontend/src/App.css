@@ -291,3 +291,9 @@ body {
   .stat-divider { width: 48px; height: 1px; }
   .search-btn { padding: 10px 14px; font-size: 14px; }
 }
+
+
+.map-frame {
+  height: 360px;
+  width: 100%;
+}
